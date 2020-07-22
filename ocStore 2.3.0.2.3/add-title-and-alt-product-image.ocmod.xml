@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<modification>
+	<id>add-title-and-alt-tag-product-image</id>
+	<name>ALT and TITLE for product images</name>
+	<code>add-title-and-alt-tag-product-image</code>
+	<version>1.2.0</version>
+	<author>Ksurill</author>
+	<link>https://github.com/ksurill/</link>
+
+<!-- Admin -->
+<!--  -->
+
+<!-- Model -->
+    <file path="admin/model/catalog/product.php">
+    	<!-- Получаем Alt/Title  -->
+    	<operation>
+	    	<search><![CDATA[public function getProductImages($product_id) {]]></search>
+	    	<add position="before"><![CDATA[
+			public function getProductImagesSeo($image_id) {
+				$image_seo_query = $this->db->query("SELECT * FROM " . DB_PREFIX . "product_image_seo WHERE product_image_id = '" . (int)$image_id . "' ORDER BY language_id ASC");
+
+				$image_seo_data = array();
+				
+				foreach ($image_seo_query->rows as $image_seo) {
+					$image_seo_data[$image_seo['language_id']] = array(
+						'title' => $image_seo['title'],
+						'alt' => $image_seo['alt']
+					);
+				}
+
+				return $image_seo_data;
+			}
+	    	]]></add>
+    	</operation>
+		
+		<!-- Очищаем уже установленные значения -->
+    	<operation>
+	    	<search><![CDATA[$this->db->query("DELETE FROM " . DB_PREFIX . "product_image WHERE product_id = '" . (int)$product_id . "'");]]></search>
+	    	
+	    	<add position="before"><![CDATA[
+			$this->db->query("DELETE pis FROM " . DB_PREFIX . "product_image_seo pis LEFT JOIN " . DB_PREFIX . "product_image pi on (pi.product_image_id = pis.product_image_id) WHERE pi.product_id = '" . (int)$product_id . "'");
+	    	]]></add>
+    	</operation>
+
+    	<!-- Передаем новые значения -->
+    	<operation>
+	    	<search><![CDATA[$this->db->query("INSERT INTO " . DB_PREFIX . "product_image SET product_id = '" . (int)$product_id . "', image = '" . $this->db->escape($product_image['image']) . "', sort_order = '" . (int)$product_image['sort_order'] . "'");]]></search>
+
+	    	<add position="after"><![CDATA[
+            if(isset($product_image['seo'])) {
+    			foreach ($product_image['seo'] as $image_seo_language_id => $image_seo) {
+    				if(!empty($image_seo['alt']) OR !empty($image_seo['title'])) {
+    					$this->db->query("INSERT INTO " . DB_PREFIX . "product_image_seo SET product_image_id = LAST_INSERT_ID(), language_id = '" . $this->db->escape($image_seo_language_id) ."', alt = '" . $this->db->escape($image_seo['alt']) ."', title = '" . $this->db->escape($image_seo['title']) ."'");
+    				}
+                }
+			}
+
+	    	]]></add>
+    	</operation>
+
+    	<!-- Удаляем товар и очищаем seo теги -->
+    	<operation>
+	    	<search><![CDATA[$this->db->query("DELETE FROM " . DB_PREFIX . "product WHERE product_id = '" . (int)$product_id . "'");]]></search>
+
+	    	<add position="before"><![CDATA[
+			$this->db->query("DELETE pis FROM " . DB_PREFIX . "product_image_seo pis LEFT JOIN " . DB_PREFIX . "product_image pi on (pi.product_image_id = pis.product_image_id) WHERE pi.product_id = '" . (int)$product_id . "'");
+	    	]]></add>
+    	</operation>
+    </file>
+
+<!-- Controller -->
+	<file path="admin/controller/catalog/product.php">
+        <operation>
+            <search><![CDATA[$data['entry_image'] = $this->language->get('entry_image');]]></search>
+            <add position="after"><![CDATA[
+        	$data['entry_image_alt'] = $this->language->get('entry_image_alt');
+        	$data['entry_image_title'] = $this->language->get('entry_image_title');
+            ]]></add>
+        </operation>
+
+        <operation>
+            <search><![CDATA[$thumb = $product_image['image'];]]></search>
+            <add position="after"><![CDATA[
+        	$image_id = $product_image['product_image_id'];
+            ]]></add>
+        </operation>
+
+        <operation>
+            <search><![CDATA['sort_order' => $product_image['sort_order']]]></search>
+            <add position="before"><![CDATA[
+        	'seo' => $this->model_catalog_product->getProductImagesSeo($image_id),
+            ]]></add>
+        </operation>
+    </file>
+
+<!-- View -->
+    <file path="admin/view/template/catalog/product_form.tpl">
+        <operation>
+            <search><![CDATA[<td class="text-right"><?php echo $entry_sort_order; ?></td>]]></search>
+
+            <add position="after"><![CDATA[
+        	
+			<td class="text-right"><?php echo $entry_image_alt; ?></td>
+            <td class="text-right"><?php echo $entry_image_title; ?></td>
+
+            ]]></add>
+    	</operation>
+
+    	<operation>
+            <search><![CDATA[<td class="text-right"><input type="text" name="product_image[<?php echo $image_row; ?>][sort_order]" value="<?php echo $product_image['sort_order']; ?>" placeholder="<?php echo $entry_sort_order; ?>" class="form-control" /></td>]]></search>
+
+            <add position="after"><![CDATA[
+        	
+			<td class="text-right">
+				<?php foreach ($languages as $language) { ?>
+				<div class="input-group">
+					<span class="input-group-addon"><img src="language/<?php echo $language['code']; ?>/<?php echo $language['code']; ?>.png" title="<?php echo $language['name']; ?>" /></span>
+					<input type="text" name="product_image[<?php echo $image_row; ?>][seo][<?php echo $language['language_id'] ?>][alt]" value="<?php echo isset($product_image['seo'][$language['language_id']]['alt']) ? $product_image['seo'][$language['language_id']]['alt'] : ''; ?>" placeholder="<?php echo $entry_image_alt; ?>" class="form-control" />
+				</div>
+				<?php } ?>
+			</td>
+
+			<td class="text-right">
+				<?php foreach ($languages as $language) { ?>
+				<div class="input-group">
+					<span class="input-group-addon"><img src="language/<?php echo $language['code']; ?>/<?php echo $language['code']; ?>.png" title="<?php echo $language['name']; ?>" /></span>
+					<input type="text" name="product_image[<?php echo $image_row; ?>][seo][<?php echo $language['language_id'] ?>][title]" value="<?php echo isset($product_image['seo'][$language['language_id']]['title']) ? $product_image['seo'][$language['language_id']]['title'] : ''; ?>" placeholder="<?php echo $entry_image_title; ?>" class="form-control" />
+				</div>
+				<?php } ?>
+			</td>
+
+            ]]></add>
+    	</operation>
+
+    	<operation>
+            <search><![CDATA[	html += '  <td class="text-right"><input type="text" name="product_image[' + image_row + '][sort_order]" value="" placeholder="<?php echo $entry_sort_order; ?>" class="form-control" /></td>';]]></search>
+
+            <add position="after"><![CDATA[
+        	
+			html += ' <td class="text-right"><?php foreach ($languages as $language) { ?><div class="input-group"><span class="input-group-addon"><img src="language/<?php echo $language['code']; ?>/<?php echo $language['code']; ?>.png" title="<?php echo $language['name']; ?>" /></span><input type="text" name="product_image[' + image_row + '][seo][<?php echo $language['language_id'] ?>][alt]" value="" placeholder="<?php echo $entry_image_alt; ?>" class="form-control" /></div><?php } ?></td>';
+
+			html += ' <td class="text-right"><?php foreach ($languages as $language) { ?><div class="input-group"><span class="input-group-addon"><img src="language/<?php echo $language['code']; ?>/<?php echo $language['code']; ?>.png" title="<?php echo $language['name']; ?>" /></span><input type="text" name="product_image[' + image_row + '][seo][<?php echo $language['language_id'] ?>][title]" value="" placeholder="<?php echo $entry_image_title; ?>" class="form-control" /></div><?php } ?></td>';
+
+            ]]></add>
+    	</operation>
+
+    	<operation>
+            <search index="2"><![CDATA[<td colspan="2"></td>]]></search>
+
+            <add position="replace"><![CDATA[
+			<td colspan="4"></td>
+            ]]></add>
+    	</operation>
+    </file>
+
+<!-- language -->
+    <file path="admin/language/en-gb/catalog/product.php">
+        <operation>
+            <search><![CDATA[$_['entry_image']            = 'Image';]]></search>
+
+            <add position="after"><![CDATA[
+            $_['entry_image_alt']            = 'alt';
+            $_['entry_image_title']            = 'title';
+            ]]></add>
+        </operation>
+    </file>
+
+<!--  -->
+<!--    -->
+<!-- FRONT -->
+
+<!-- model  -->
+    <file path="catalog/model/catalog/product.php">
+        <operation>
+            <search><![CDATA[public function getProductImages($product_id) {]]></search>
+            <add position="before"><![CDATA[
+            public function getProductImagesSeo($image_id) {
+                $image_seo_query = $this->db->query("SELECT * FROM " . DB_PREFIX . "product_image_seo WHERE product_image_id = '" . (int)$image_id . "' AND language_id = '" . (int)$this->config->get('config_language_id') . "'");
+
+                $image_seo_data = array();
+                
+                foreach ($image_seo_query->rows as $image_seo) {
+                    $image_seo_data = array(
+                        'title' => $image_seo['title'],
+                        'alt' => $image_seo['alt']
+                    );
+                }
+
+                return $image_seo_data;
+            }
+            ]]></add>
+        </operation>
+    </file>
+
+<!-- View -->
+    <file path="catalog/view/theme/default/template/product/product.tpl">
+        <operation>
+            <search><![CDATA[<li class="image-additional"><a class="thumbnail" href="<?php echo $image['popup']; ?>" title="<?php echo $heading_title; ?>"> <img src="<?php echo $image['thumb']; ?>" title="<?php echo $heading_title; ?>" alt="<?php echo $heading_title; ?>" /></a></li>]]></search>
+            <add position="replace"><![CDATA[
+            <li class="image-additional"><a class="thumbnail" href="<?php echo $image['popup']; ?>" title="<?php if(!empty($image['seo']['title'])) { echo $image['seo']['title']; } else { echo $heading_title; } ?>"> <img src="<?php echo $image['thumb']; ?>" title="<?php if(!empty($image['seo']['title'])) { echo $image['seo']['title']; } else { echo $heading_title; } ?>" alt="<?php if(!empty($image['seo']['alt'])) { echo $image['seo']['alt']; } else { echo $heading_title; } ?>" /></a></li>
+            ]]></add>
+        </operation>
+    </file>
+
+<!-- controller -->
+    <file path="catalog/controller/product/product.php">
+        <operation>
+            <search><![CDATA['thumb' => $this->model_tool_image->resize($result['image'], $this->config->get($this->config->get('config_theme') . '_image_additional_width'), $this->config->get($this->config->get('config_theme') . '_image_additional_height'))]]></search>
+            <add position="before"><![CDATA[
+            'seo' => $this->model_catalog_product->getProductImagesSeo($result['product_image_id']),
+            ]]></add>
+        </operation>
+    </file>
+
+</modification>    
